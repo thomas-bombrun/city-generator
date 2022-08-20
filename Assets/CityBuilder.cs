@@ -1,8 +1,12 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
+public enum cityBuildType
+{
+Static, 
+Split,
+};
 
 public class CityBuilder : MonoBehaviour
 {
@@ -57,6 +61,10 @@ public class CityBuilder : MonoBehaviour
     public Vector3 blockSize;
     public Vector3Int numberOfBlocks;
     public float streetSize;
+
+    public cityBuildType splitType;
+
+
     public void GenerateCity()
     {
         Clear();
@@ -65,7 +73,32 @@ public class CityBuilder : MonoBehaviour
         LoadPrefabs();
 
         transform.position = Vector3.zero;
+        if (splitType == cityBuildType.Static)
+            StaticBuild();
+        else if (splitType == cityBuildType.Split)
+        {
+            Vector3 fullBlockSize = new Vector3(
+                (blockSize.x * numberOfBlocks.x) + (streetSize * numberOfBlocks.x - 1),
+                0,
+                (blockSize.z * numberOfBlocks.z) + (streetSize * numberOfBlocks.z - 1)
+            );
+            SplitSpace(fullBlockSize, new Vector3(0, 0, 0), new Vector3(0, 0, 0), new Vector3(1, 0 , 0));
+        }
+
+        //TODO : this is needed to center the buildings at (0,0,0) because the city is not generated around the CityBuilder location : it should
+        transform.position = new Vector3(
+            (blockSize.x * numberOfBlocks.x) + (streetSize * numberOfBlocks.x - 1),
+            0,
+            (blockSize.z * numberOfBlocks.z) + (streetSize * numberOfBlocks.z - 1)
+        );
+        transform.position *= -0.5f;
+
+    }
+
+    void StaticBuild()
+    {
         for (int i = 0; i < numberOfBlocks.x; i++)
+        {
             for (int j = 0; j < numberOfBlocks.z; j++)
             {
                 {
@@ -74,14 +107,39 @@ public class CityBuilder : MonoBehaviour
                     block.transform.position = Vector3.right * ((blockSize.x * i) + (streetSize * i)) + Vector3.forward * ((blockSize.z * j) + (streetSize * j));
                 }
             }
+        }
+    }
 
-        //TODO : this is needed to center the buildings at (0,0,0) because the city is not generated around the CityBuilder location : it should
-        transform.position = new Vector3(
-            (blockSize.x * numberOfBlocks.x) + (streetSize * numberOfBlocks.x - 1),
-            0,
-            (blockSize.z * numberOfBlocks.z) + (streetSize * numberOfBlocks.z - 1)
-            );
-        transform.position *= -0.5f;
+
+    public Vector3Int maxSplitCount;
+    public void SplitSpace(Vector3 blockDimensions, Vector3 blockPosition, Vector3 splitIndex, Vector3 splitDimension)
+    {
+        if (Vector3.Dot(splitIndex, splitDimension) < Vector3.Dot(maxSplitCount, splitDimension))
+        {
+            float lengthToSplit = Vector3.Dot(blockDimensions, splitDimension);
+            float splitPosition = Random.Range(lengthToSplit / 4, lengthToSplit * 3 / 4);
+            
+            Vector3 filterDimensionVector = new Vector3(1, 1, 1) - splitDimension;
+            Vector3 partialDimensions = Vector3.Scale(blockDimensions, filterDimensionVector);
+            Vector3 partialPositions = blockPosition;  //  - 0.5f * (lengthToSplit - streetSize) * splitDimension;
+
+            Vector3 newSplitDimension = Vector3.Scale(Vector3.Cross(splitDimension, new Vector3(0, 1, 0)), new Vector3(-1, 0, 1));
+
+            // First split
+            Vector3 firstSubBlockDimensions = partialDimensions + splitDimension * (splitPosition - 0.5f * streetSize);
+            Vector3 firstSubBlockPosition = partialPositions;  // + 0.5f * splitPosition * splitDimension;
+            SplitSpace(firstSubBlockDimensions, firstSubBlockPosition, splitIndex + splitDimension, newSplitDimension);
+            // Second split
+            Vector3 secondSubBlockDimensions = partialDimensions + splitDimension * (lengthToSplit - splitPosition - 0.5f * streetSize);
+            Vector3 secondSubBlockPosition = partialPositions + (splitPosition + streetSize) * splitDimension;
+            SplitSpace(secondSubBlockDimensions, secondSubBlockPosition, splitIndex + splitDimension, newSplitDimension);
+        }
+        else
+        {
+            GameObject block = GenerateBlock(blockDimensions);
+            block.transform.parent = transform;
+            block.transform.position = blockPosition;
+        }
 
     }
 

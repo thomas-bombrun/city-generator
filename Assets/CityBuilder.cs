@@ -2,10 +2,23 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
+public class MultiValueDictionary<Key, Value> : Dictionary<Key, List<Value>>
+{
+    public void Add(Key key, Value value)
+    {
+        List<Value> values;
+        if (!this.TryGetValue(key, out values))
+        {
+            values = new List<Value>();
+            this.Add(key, values);
+        }
+        values.Add(value);
+    }
+}
 public enum cityBuildType
 {
-Static, 
-Split,
+    Static,
+    Split,
 };
 
 public class CityBuilder : MonoBehaviour
@@ -31,9 +44,9 @@ public class CityBuilder : MonoBehaviour
         }
     }
 
-    private GameObject RandomPrefab()
+    private GameObject RandomBuildingPrefab()
     {
-        return prefabs[Random.Range(0, prefabs.Count)];
+        return buildingPrefabs[Random.Range(0, buildingPrefabs.Count)];
     }
 
     private GameObject CreateBuilding(GameObject prefab)
@@ -42,35 +55,29 @@ public class CityBuilder : MonoBehaviour
         go.transform.parent = transform;
         return go;
     }
-
-    private void LoadPrefabs()
+    private GameObject CreateRandomStreetCorner()
     {
-        prefabs = new List<GameObject>();
-        Debug.Log("Loading all prefabs");
-        string[] guids = AssetDatabase.FindAssets("t:prefab", new string[] { "Assets/Buildings" });
-        foreach (var guid in guids)
-        {
-            var path = AssetDatabase.GUIDToAssetPath(guid);
-            GameObject go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-            prefabs.Add(go);
-        }
-
+        GameObject prefab = streetCornerPrefabs[Random.Range(0, streetCornerPrefabs.Count)];
+        return CreateBuilding(prefab);
     }
 
-    List<GameObject> prefabs = new List<GameObject>();
+
+    public List<GameObject> buildingPrefabs = new List<GameObject>();
     public Vector3 blockSize;
     public Vector3Int numberOfBlocks;
-    public float streetSize;
-
     public cityBuildType splitType;
+
+
+    public float streetSize;
+    public GameObject streetPrefab;
+    public List<GameObject> streetCornerPrefabs;
+    public List<GameObject> streetPlaced;
 
 
     public void GenerateCity()
     {
         Clear();
-
-        // Todo : not reload at each call
-        LoadPrefabs();
+        streetPlaced = new List<GameObject>();
 
         transform.position = Vector3.zero;
         if (splitType == cityBuildType.Static)
@@ -82,8 +89,10 @@ public class CityBuilder : MonoBehaviour
                 0,
                 (blockSize.z * numberOfBlocks.z) + (streetSize * numberOfBlocks.z - 1)
             );
-            SplitSpace(fullBlockSize, new Vector3(0, 0, 0), new Vector3(0, 0, 0), new Vector3(1, 0 , 0));
+            SplitSpace(fullBlockSize, new Vector3(0, 0, 0), new Vector3(0, 0, 0), new Vector3(1, 0, 0));
         }
+
+        RemoveStreetsDuplicates();
 
         //TODO : this is needed to center the buildings at (0,0,0) because the city is not generated around the CityBuilder location : it should
         transform.position = new Vector3(
@@ -92,6 +101,8 @@ public class CityBuilder : MonoBehaviour
             (blockSize.z * numberOfBlocks.z) + (streetSize * numberOfBlocks.z - 1)
         );
         transform.position *= -0.5f;
+
+
 
     }
 
@@ -118,7 +129,7 @@ public class CityBuilder : MonoBehaviour
         {
             float lengthToSplit = Vector3.Dot(blockDimensions, splitDimension);
             float splitPosition = Random.Range(lengthToSplit / 4, lengthToSplit * 3 / 4);
-            
+
             Vector3 filterDimensionVector = new Vector3(1, 1, 1) - splitDimension;
             Vector3 partialDimensions = Vector3.Scale(blockDimensions, filterDimensionVector);
             Vector3 partialPositions = blockPosition;  //  - 0.5f * (lengthToSplit - streetSize) * splitDimension;
@@ -126,7 +137,7 @@ public class CityBuilder : MonoBehaviour
             Vector3 newSplitDimension = Vector3.Scale(Vector3.Cross(splitDimension, new Vector3(0, 1, 0)), new Vector3(-1, 0, 1));
 
             // First split
-            Vector3 firstSubBlockDimensions = partialDimensions + splitDimension * (splitPosition - 0.5f * streetSize);
+            Vector3 firstSubBlockDimensions = partialDimensions + splitDimension * splitPosition;
             Vector3 firstSubBlockPosition = partialPositions;  // + 0.5f * splitPosition * splitDimension;
             SplitSpace(firstSubBlockDimensions, firstSubBlockPosition, splitIndex + splitDimension, newSplitDimension);
             // Second split
@@ -167,6 +178,10 @@ public class CityBuilder : MonoBehaviour
         fourthLine.transform.Rotate(Vector3.up, 90);
         fourthLine.transform.position = Vector3.forward * size.z;
         fourthLine.name = "Fourth Face";
+
+
+
+
         return block;
     }
 
@@ -177,7 +192,7 @@ public class CityBuilder : MonoBehaviour
         var xProgress = 0f;
         while (xProgress < length)
         {
-            var pref = RandomPrefab();
+            var pref = RandomBuildingPrefab();
             var bc = pref.GetComponent<BoxCollider>();
 
             var newSize = xProgress + bc.size.x;
@@ -210,6 +225,36 @@ public class CityBuilder : MonoBehaviour
 
             xProgress += bc.size.x / 2;
         }
+
+        // We add the street
+
+        GameObject street = CreateBuilding(streetPrefab);
+        street.transform.localScale = new Vector3(length, 1, streetSize);
+        street.transform.position = new Vector3(length / 2, 0, -streetSize / 2);
+        street.transform.parent = line.transform;
+        streetPlaced.Add(street);
+
+
+        GameObject streetCorner = CreateRandomStreetCorner();
+        streetCorner.transform.localScale = new Vector3(streetSize, 1, streetSize);
+        streetCorner.transform.position = new Vector3(-streetSize / 2, 0, -streetSize / 2);
+        streetCorner.transform.parent = line.transform;
+        streetPlaced.Add(streetCorner);
+
         return line;
     }
+    private void RemoveStreetsDuplicates()
+    {
+        for (int i = 0; i < streetPlaced.Count; i++)
+        {
+            for (int j = 0; j < streetPlaced.Count; j++)
+            {
+                if (i != j && streetPlaced[i] != null && streetPlaced[j] != null && streetPlaced[i].transform.position == streetPlaced[j].transform.position)
+                {
+                    SafeDestroy(streetPlaced[i]);
+                }
+            }
+        }
+    }
+
 }
